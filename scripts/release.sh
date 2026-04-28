@@ -61,10 +61,7 @@ if [[ -z "$OTA_ASSET_NAME" ]]; then
   OTA_ASSET_NAME="firmware.bin"
 fi
 
-TAG="v$FW_VERSION"
-if [[ "${FW_VERSION#v}" != "$FW_VERSION" ]]; then
-  TAG="$FW_VERSION"
-fi
+TAG="$FW_VERSION"
 
 echo ">>> Building firmware"
 make -C "$ROOT_DIR" build ENV="$ENV_NAME"
@@ -91,11 +88,13 @@ require_cmd gh
 
 if git -C "$ROOT_DIR" rev-parse "$TAG" >/dev/null 2>&1; then
   echo "Error: git tag '$TAG' already exists locally."
+  echo "Update FW_VERSION in include/device_config.h and run make release again."
   exit 1
 fi
 
 if git -C "$ROOT_DIR" ls-remote --tags origin "$TAG" | rg -q "$TAG"; then
   echo "Error: tag '$TAG' already exists on origin."
+  echo "Update FW_VERSION in include/device_config.h and run make release again."
   exit 1
 fi
 

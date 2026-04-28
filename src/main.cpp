@@ -27,6 +27,14 @@ unsigned long portalStartedAt = 0;
 uint32_t screenUptimeS = 0;
 unsigned long lastScreenTickAt = 0;
 
+String normalizeVersion(String version) {
+  version.trim();
+  while (version.startsWith("v") || version.startsWith("V")) {
+    version.remove(0, 1);
+  }
+  return version;
+}
+
 void drawStatus(const String &line1, const String &line2 = "", const String &line3 = "") {
   tft.fillScreen(TFT_BLACK);
   tft.setTextDatum(MC_DATUM);
@@ -195,6 +203,7 @@ bool fetchLatestReleaseBinUrl(String &latestTag, String &firmwareUrl) {
     repo.remove(0, 1);
   }
   if (repo == "owner/repo" || repo.indexOf('/') < 1) {
+    Serial.println("[OTA] Invalid GITHUB_REPO configuration");
     return false;
   }
 
@@ -204,12 +213,14 @@ bool fetchLatestReleaseBinUrl(String &latestTag, String &firmwareUrl) {
   HTTPClient http;
   const String url = String("https://api.github.com/repos/") + repo + "/releases/latest";
   if (!http.begin(client, url)) {
+    Serial.println("[OTA] Failed to open GitHub API connection");
     return false;
   }
 
   http.addHeader("Accept", "application/vnd.github+json");
   const int httpCode = http.GET();
   if (httpCode != HTTP_CODE_OK) {
+    Serial.printf("[OTA] GitHub API HTTP error: %d\n", httpCode);
     http.end();
     return false;
   }
@@ -218,12 +229,14 @@ bool fetchLatestReleaseBinUrl(String &latestTag, String &firmwareUrl) {
   const auto err = deserializeJson(doc, http.getString());
   http.end();
   if (err) {
+    Serial.printf("[OTA] Failed to parse GitHub API response: %s\n", err.c_str());
     return false;
   }
 
   const bool prerelease = doc["prerelease"] | false;
   const bool draft = doc["draft"] | false;
   if (prerelease || draft) {
+    Serial.println("[OTA] Latest release is draft/prerelease, skipping");
     return false;
   }
 
@@ -240,6 +253,7 @@ bool fetchLatestReleaseBinUrl(String &latestTag, String &firmwareUrl) {
 
     if (expectedAssetName.length() > 0 && name == expectedAssetName) {
       firmwareUrl = downloadUrl;
+      Serial.printf("[OTA] Selected asset: %s\n", name.c_str());
       return !latestTag.isEmpty();
     }
 
@@ -250,24 +264,32 @@ bool fetchLatestReleaseBinUrl(String &latestTag, String &firmwareUrl) {
 
   if (expectedAssetName.length() == 0 && !fallbackBinUrl.isEmpty()) {
     firmwareUrl = fallbackBinUrl;
+    Serial.printf("[OTA] Selected fallback asset URL: %s\n", firmwareUrl.c_str());
     return !latestTag.isEmpty();
   }
 
+  Serial.println("[OTA] No matching .bin asset found in latest release");
   return !latestTag.isEmpty() && !firmwareUrl.isEmpty();
 }
 
 void checkForOtaUpdate() {
   if (!wifiReady || WiFi.status() != WL_CONNECTED) {
+    Serial.println("[OTA] Skipped: Wi-Fi is not connected");
     return;
   }
 
   String latestTag;
   String firmwareUrl;
   if (!fetchLatestReleaseBinUrl(latestTag, firmwareUrl)) {
+    Serial.println("[OTA] No valid update candidate found");
     return;
   }
 
-  if (latestTag == FW_VERSION) {
+  const String normalizedLatest = normalizeVersion(latestTag);
+  const String normalizedCurrent = normalizeVersion(String(FW_VERSION));
+  Serial.printf("[OTA] Current FW: %s, Latest tag: %s\n", normalizedCurrent.c_str(), normalizedLatest.c_str());
+  if (normalizedLatest == normalizedCurrent) {
+    Serial.println("[OTA] Device is up to date");
     return;
   }
 
@@ -278,8 +300,13 @@ void checkForOtaUpdate() {
   t_httpUpdate_return ret = httpUpdate.update(updateClient, firmwareUrl);
 
   if (ret == HTTP_UPDATE_FAILED) {
+    Serial.printf("[OTA] Update failed: %s\n", httpUpdate.getLastErrorString().c_str());
     drawStatus("Update failed", httpUpdate.getLastErrorString());
     delay(1500);
+  } else if (ret == HTTP_UPDATE_NO_UPDATES) {
+    Serial.println("[OTA] HTTP updater reports no updates");
+  } else {
+    Serial.println("[OTA] Update applied, rebooting...");
   }
 }
 

@@ -1,7 +1,7 @@
 #pragma once
 
 // Firmware version used for OTA comparison with GitHub release tag.
-#define FW_VERSION "0.1.0"
+#define FW_VERSION "0.2.0"
 
 // GitHub repository in owner/repo format.
 // Example: "steel0rat/shaslyk-firmware"
