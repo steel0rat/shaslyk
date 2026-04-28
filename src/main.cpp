@@ -35,6 +35,53 @@ String normalizeVersion(String version) {
   return version;
 }
 
+String resolveRedirectedUrl(const String &url, uint8_t maxHops = 5) {
+  String currentUrl = url;
+
+  for (uint8_t i = 0; i < maxHops; ++i) {
+    WiFiClientSecure client;
+    client.setInsecure();
+
+    HTTPClient http;
+    if (!http.begin(client, currentUrl)) {
+      Serial.println("[OTA] Failed to begin redirect resolution request");
+      return "";
+    }
+
+    const char *headerKeys[] = {"Location"};
+    http.collectHeaders(headerKeys, 1);
+    const int code = http.sendRequest("HEAD");
+    if (code < 0) {
+      Serial.printf("[OTA] Redirect resolution request failed: %d\n", code);
+      http.end();
+      return "";
+    }
+
+    if (code == HTTP_CODE_MOVED_PERMANENTLY || code == HTTP_CODE_FOUND || code == HTTP_CODE_TEMPORARY_REDIRECT ||
+        code == HTTP_CODE_PERMANENT_REDIRECT) {
+      const String location = http.header("Location");
+      http.end();
+      if (location.isEmpty()) {
+        Serial.println("[OTA] Redirect response has empty Location header");
+        return "";
+      }
+      currentUrl = location;
+      continue;
+    }
+
+    http.end();
+    if (code == HTTP_CODE_OK) {
+      return currentUrl;
+    }
+
+    Serial.printf("[OTA] Unexpected HTTP code while resolving redirect: %d\n", code);
+    return "";
+  }
+
+  Serial.println("[OTA] Too many redirect hops");
+  return "";
+}
+
 void drawStatus(const String &line1, const String &line2 = "", const String &line3 = "") {
   tft.fillScreen(TFT_BLACK);
   tft.setTextDatum(MC_DATUM);
@@ -295,9 +342,18 @@ void checkForOtaUpdate() {
 
   drawStatus("Updating firmware", latestTag, "Please wait...");
 
+  const String resolvedFirmwareUrl = resolveRedirectedUrl(firmwareUrl);
+  if (resolvedFirmwareUrl.isEmpty()) {
+    Serial.println("[OTA] Failed to resolve OTA URL redirects");
+    drawStatus("Update failed", "Cannot resolve URL");
+    delay(1500);
+    return;
+  }
+  Serial.printf("[OTA] Resolved OTA URL: %s\n", resolvedFirmwareUrl.c_str());
+
   WiFiClientSecure updateClient;
   updateClient.setInsecure();
-  t_httpUpdate_return ret = httpUpdate.update(updateClient, firmwareUrl);
+  t_httpUpdate_return ret = httpUpdate.update(updateClient, resolvedFirmwareUrl);
 
   if (ret == HTTP_UPDATE_FAILED) {
     Serial.printf("[OTA] Update failed: %s\n", httpUpdate.getLastErrorString().c_str());

@@ -3,7 +3,7 @@ ENV ?= lilygo-t-display-v1-1
 BAUD ?= 115200
 PORT ?= $(shell ls /dev/tty.usbmodem* /dev/tty.usbserial* /dev/cu.usbmodem* /dev/cu.usbserial* 2>/dev/null | head -n 1)
 
-.PHONY: help build clean monitor upload release check-pio check-port
+.PHONY: help build clean monitor upload release check-pio check-port mega-release
 
 help:
 	@echo "Targets:"
@@ -49,3 +49,6 @@ upload: check-pio check-port
 
 release: check-pio
 	bash ./scripts/release.sh
+
+mega-release: 
+	git add . && git commit -m "base" && git push && make release && make monitor
